@@ -1,47 +1,31 @@
+// Package config obsahuje konfigurační struktury a funkce pro načítání konfigurace.
 package config
 
 import (
-    "fmt"
-    "os"
-    "path/filepath"
-
-    "gopkg.in/yaml.v3"
-
-    "github.com/PhateValleyman/copier/config"
-    "github.com/PhateValleyman/copier/worker"
+	"encoding/json" // pro načítání JSON souboru
+	"os"            // pro práci se soubory
 )
 
-type Entry struct {
-    Name   string `yaml:"name"`
-    Source string `yaml:"source"`
-    Target string `yaml:"target"`
+// Config definuje strukturu konfiguračního souboru.
+type Config struct {
+	SourceDir string `json:"source_dir"` // adresář odkud kopírovat
+	TargetDir string `json:"target_dir"` // cílový adresář
 }
 
-func LoadOrCreate() ([]Entry, error) {
-    cfgDir := filepath.Join(os.Getenv("HOME"), ".config", "copier")
-    cfgPath := filepath.Join(cfgDir, "dirs.yml")
+// Load načte konfiguraci ze zadaného souboru a vrátí strukturu Config.
+func Load(filename string) (*Config, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
 
-    if err := os.MkdirAll(cfgDir, 0755); err != nil {
-        return nil, fmt.Errorf("failed to create config dir: %w", err)
-    }
+	decoder := json.NewDecoder(file)
+	var cfg Config
+	err = decoder.Decode(&cfg)
+	if err != nil {
+		return nil, err
+	}
 
-    if _, err := os.Stat(cfgPath); os.IsNotExist(err) {
-        defaultContent := `- name: Pohadky
-  source: "` + filepath.Join(os.Getenv("HOME"), "pohadky") + `"
-  target: "` + filepath.Join(os.Getenv("HOME"), "pohadky_backup") + `"`
-        if err := os.WriteFile(cfgPath, []byte(defaultContent), 0644); err != nil {
-            return nil, fmt.Errorf("failed to write default config: %w", err)
-        }
-    }
-
-    data, err := os.ReadFile(cfgPath)
-    if err != nil {
-        return nil, fmt.Errorf("failed to read config: %w", err)
-    }
-
-    var entries []Entry
-    if err := yaml.Unmarshal(data, &entries); err != nil {
-        return nil, fmt.Errorf("failed to parse config: %w", err)
-    }
-    return entries, nil
+	return &cfg, nil
 }

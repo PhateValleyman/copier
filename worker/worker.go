@@ -1,62 +1,67 @@
-package gui
+// Package worker obsahuje logiku pro kopírování souborů.
+package worker
 
 import (
-    "fmt"
-    "os/exec"
-
-    "fyne.io/fyne/v2"
-    "fyne.io/fyne/v2/app"
-    "fyne.io/fyne/v2/container"
-    "fyne.io/fyne/v2/dialog"
-    "fyne.io/fyne/v2/widget"
-
-    "github.com/PhateValleyman/copier/config"
-    "github.com/PhateValleyman/copier/worker"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 )
 
-func Run(entries []config.Entry) {
-    a := app.New()
-    w := a.NewWindow("Copier")
+// CopyFile zkopíruje jeden soubor ze source do dest.
+func CopyFile(source, dest string) error {
+	// otevřeme zdrojový soubor
+	srcFile, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
 
-    selectEntry := widget.NewSelect(func() []string {
-        names := []string{}
-        for _, e := range entries {
-            names = append(names, e.Name)
-        }
-        return names
-    }(), func(s string) {})
+	// vytvoříme cílový soubor
+	dstFile, err := os.Create(dest)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
 
-    progressBar := widget.NewProgressBar()
-    logArea := widget.NewMultiLineEntry()
-    logArea.SetReadOnly(true)
+	// zkopírujeme obsah
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return err
+	}
 
-    copyBtn := widget.NewButton("Kopírovat", func() {
-        idx := selectEntry.Selected
-        if idx < 0 {
-            dialog.ShowInformation("Chyba", "Vyberte položku", w)
-            return
-        }
-        entry := entries[idx]
-        logArea.SetText("")
-        go worker.Copy(entry,
-            func(p float64) { a.QueueUpdate(func() { progressBar.SetValue(p) }) },
-            func(msg string) { a.QueueUpdate(func() { logArea.SetText(logArea.Text + msg + "\n") }) },
-        )
-        go func() {
-            exec.Command("buzzerc", "-t", "5").Run()
-        }()
-    })
+	return nil
+}
 
-    content := container.NewVBox(
-        widget.NewLabel("Vyberte pohádky:"),
-        selectEntry,
-        copyBtn,
-        progressBar,
-        widget.NewLabel("Log:"),
-        container.NewScroll(logArea),
-    )
+// CopyDirectory zkopíruje obsah celého adresáře.
+func CopyDirectory(srcDir, dstDir string) error {
+	// Vytvoříme cílový adresář pokud neexistuje
+	err := os.MkdirAll(dstDir, 0755)
+	if err != nil {
+		return err
+	}
 
-    w.SetContent(content)
-    w.Resize(fyne.NewSize(400, 400))
-    w.ShowAndRun()
+	// Projdeme všechny položky ve zdrojovém adresáři
+	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Spočítáme relativní cestu
+		relPath, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+
+		destPath := filepath.Join(dstDir, relPath)
+
+		// Pokud je to adresář, vytvoříme jej
+		if info.IsDir() {
+			return os.MkdirAll(destPath, info.Mode())
+		}
+
+		// Jinak zkopírujeme soubor
+		fmt.Println("Copying:", path, "->", destPath)
+		return CopyFile(path, destPath)
+	})
 }
